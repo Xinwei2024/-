@@ -441,7 +441,7 @@
             <div class="form-group">
                 <label for="image-count">故事图片数量：</label>
                 <input type="number" id="image-count" min="1" max="50" value="5" placeholder="默认为5">
-                <small>请输入您picture文件夹中的图片数量</small>
+                <small>请输入images文件夹中的图片数量（1.png, 2.png, 3.png...）</small>
             </div>
             
             <div id="image-check-result"></div>
@@ -717,16 +717,16 @@
             recordingStartTimestamp: null,
             experimentEndTimestamp: null,
             isGeneratingZip: false,
-            // 新增：图片预加载相关
+            // 图片预加载相关
             preloadedImages: [], // 预加载的图片对象数组
             isPreloading: false,
             preloadProgress: 0
         };
 
-        // 应用配置
+        // 应用配置 - 修改为使用本地images文件夹
         const AppConfig = {
-            imageFolder: '/story_rabbit/picture', // 你的GitHub Pages路径
-            imageFormat: 'png', // 你的图片是png格式
+            imageFolder: 'images', // 修改为同级目录的images文件夹
+            imageFormat: 'png', // 图片格式，根据实际情况修改
             startIndex: 1,
             maxImages: 50,
             audioSampleRate: 44100,
@@ -771,8 +771,9 @@
             document.getElementById('image-check-result').innerHTML = `
                 <div class="success-message">
                     当前配置<br>
-                    图片路径: ${AppConfig.imageFolder}<br>
-                    图片格式: ${AppConfig.imageFormat}
+                    图片路径: <strong>${AppConfig.imageFolder}/</strong><br>
+                    图片格式: <strong>${AppConfig.imageFormat}</strong><br>
+                    图片命名: <strong>1.${AppConfig.imageFormat}, 2.${AppConfig.imageFormat}...</strong>
                 </div>
             `;
         }
@@ -912,6 +913,8 @@
             let loadedCount = 0;
             
             console.log(`开始预加载 ${totalImages} 张图片...`);
+            console.log(`图片路径: ${AppConfig.imageFolder}/`);
+            console.log(`图片格式: ${AppConfig.imageFormat}`);
             
             // 预加载图片的Promise数组
             const preloadPromises = [];
@@ -935,12 +938,40 @@
                     img.onerror = () => {
                         loadedCount++;
                         console.error(`❌ 预加载图片失败: ${imageUrl}`);
-                        // 创建占位图片
-                        const placeholder = new Image();
-                        placeholder.src = `https://placehold.co/800x500/4a6fa5/white?text=图片${imageNumber}&font=arial`;
-                        AppState.preloadedImages[i] = placeholder;
-                        updatePreloadProgress(loadedCount, totalImages);
-                        resolve(placeholder);
+                        
+                        // 尝试其他图片格式
+                        const altFormats = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+                        let foundAlternative = false;
+                        
+                        for (const format of altFormats) {
+                            if (format !== AppConfig.imageFormat) {
+                                const altUrl = `${AppConfig.imageFolder}/${imageNumber}.${format}`;
+                                const altImg = new Image();
+                                
+                                altImg.onload = () => {
+                                    console.log(`✅ 使用替代格式加载图片 ${i+1}: ${altUrl}`);
+                                    AppState.preloadedImages[i] = altImg;
+                                    resolve(altImg);
+                                };
+                                
+                                altImg.onerror = () => {
+                                    // 继续尝试下一个格式
+                                };
+                                
+                                altImg.src = altUrl + `?alt=${Date.now()}`;
+                                foundAlternative = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!foundAlternative) {
+                            // 创建占位图片
+                            const placeholder = new Image();
+                            placeholder.src = `https://placehold.co/800x500/4a6fa5/white?text=图片${imageNumber}&font=arial`;
+                            placeholder.alt = `图片 ${imageNumber} (占位图)`;
+                            AppState.preloadedImages[i] = placeholder;
+                            resolve(placeholder);
+                        }
                     };
                     
                     // 添加时间戳防止缓存
@@ -978,7 +1009,7 @@
             testBtn.disabled = true;
             
             const resultDiv = document.getElementById('image-check-result');
-            resultDiv.innerHTML = '<div>正在测试图片加载...</div>';
+            resultDiv.innerHTML = '<div class="success-message">正在测试图片加载...</div>';
             
             // 获取手动设置的图片数量
             const manualCount = parseInt(document.getElementById('image-count').value) || 5;
@@ -998,6 +1029,19 @@
                         testResults.push(`✅ 图片 ${i}.${AppConfig.imageFormat}: 可加载`);
                     } else {
                         testResults.push(`❌ 图片 ${i}.${AppConfig.imageFormat}: 不可加载`);
+                        
+                        // 测试其他格式
+                        const altFormats = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+                        for (const format of altFormats) {
+                            if (format !== AppConfig.imageFormat) {
+                                const altUrl = `${AppConfig.imageFolder}/${i}.${format}`;
+                                const altExists = await checkImageExists(altUrl);
+                                if (altExists) {
+                                    testResults.push(`   ✅ 发现替代格式: ${format}`);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 } catch (error) {
                     testResults.push(`❌ 图片 ${i}.${AppConfig.imageFormat}: 检测失败`);
@@ -1012,8 +1056,7 @@
                     <div class="success-message">
                         <strong>✅ 图片加载测试成功！</strong><br>
                         ${testResults.join('<br>')}<br><br>
-                        检测到图片格式: <strong>${AppConfig.imageFormat}</strong><br>
-                        图片路径: <strong>${AppConfig.imageFolder}</strong><br>
+                        检测到图片路径: <strong>${AppConfig.imageFolder}/</strong><br>
                         使用图片数量: ${AppState.totalImages}<br>
                         示例URL: <a href="${AppConfig.imageFolder}/1.${AppConfig.imageFormat}" target="_blank">${AppConfig.imageFolder}/1.${AppConfig.imageFormat}</a>
                     </div>
@@ -1024,10 +1067,18 @@
                         <strong>❌ 图片加载测试失败</strong><br>
                         ${testResults.join('<br>')}<br><br>
                         请检查：<br>
-                        1. 图片路径是否正确: ${AppConfig.imageFolder}<br>
-                        2. 图片格式是否正确: ${AppConfig.imageFormat}<br>
-                        3. 图片文件名是否为 1.${AppConfig.imageFormat}, 2.${AppConfig.imageFormat} 格式<br>
-                        4. GitHub Pages 是否已正确部署
+                        1. 确保有名为 <strong>"images"</strong> 的文件夹与index.html在同一目录<br>
+                        2. 图片命名格式为: <strong>1.${AppConfig.imageFormat}, 2.${AppConfig.imageFormat}, ...</strong><br>
+                        3. 如果格式不对，请修改图片格式设置<br>
+                        4. 目录结构应该为:<br>
+                           <code>
+                           ├── index.html<br>
+                           └── images/<br>
+                               ├── 1.png<br>
+                               ├── 2.png<br>
+                               ├── 3.png<br>
+                               └── ...
+                           </code>
                     </div>
                 `;
             }
@@ -1132,17 +1183,17 @@
             }
             
             const imgElement = document.getElementById('current-image');
+            const imageNumber = AppState.currentImageIndex + AppConfig.startIndex;
             
             // 检查是否有预加载的图片
             if (AppState.preloadedImages && AppState.preloadedImages[AppState.currentImageIndex]) {
                 // 使用预加载的图片
                 const preloadedImg = AppState.preloadedImages[AppState.currentImageIndex];
                 imgElement.src = preloadedImg.src;
-                imgElement.alt = preloadedImg.alt;
+                imgElement.alt = preloadedImg.alt || `故事图片 ${imageNumber}`;
                 console.log(`使用预加载的图片: ${AppState.currentImageIndex + 1}`);
             } else {
                 // 回退到动态加载
-                const imageNumber = AppState.currentImageIndex + AppConfig.startIndex;
                 const imageUrl = `${AppConfig.imageFolder}/${imageNumber}.${AppConfig.imageFormat}`;
                 
                 // 清除之前的错误处理
@@ -1239,7 +1290,7 @@
                 if (AppState.preloadedImages && AppState.preloadedImages[i]) {
                     // 使用预加载的图片
                     img.src = AppState.preloadedImages[i].src;
-                    img.alt = AppState.preloadedImages[i].alt;
+                    img.alt = AppState.preloadedImages[i].alt || `故事图片 ${imageNumber}`;
                 } else {
                     // 动态加载
                     const imageUrl = `${AppConfig.imageFolder}/${imageNumber}.${AppConfig.imageFormat}`;
@@ -1247,17 +1298,15 @@
                     const cacheBuster = `?t=${Date.now() + i}`;
                     img.src = imageUrl + cacheBuster;
                     img.alt = `故事图片 ${i + 1}`;
+                    
+                    // 错误处理
+                    img.onerror = function() {
+                        this.onerror = null;
+                        this.src = `https://placehold.co/180x120/6b9ac4/white?text=图片${imageNumber}&font=arial`;
+                    };
                 }
                 
                 img.className = 'story-thumbnail';
-                
-                // 添加错误处理
-                img.onerror = function() {
-                    console.error(`无法加载缩略图: ${imageNumber}`);
-                    this.onerror = null; // 防止循环
-                    this.src = `https://placehold.co/180x120/6b9ac4/white?text=图片${i+1}&font=arial`;
-                };
-                
                 container.appendChild(img);
             }
         }
