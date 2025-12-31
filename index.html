@@ -304,6 +304,16 @@
             border: 1px solid #ffcccc;
         }
         
+        .success-message {
+            background-color: #e8f5e8;
+            color: #2d572d;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            text-align: center;
+            border: 1px solid #a3e4a3;
+        }
+        
         /* 音频预览样式 */
         .audio-preview {
             margin: 20px 0;
@@ -323,23 +333,6 @@
             gap: 15px;
             margin-top: 20px;
             flex-wrap: wrap;
-        }
-        
-        /* 加载指示器 */
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-            margin-right: 8px;
-            vertical-align: middle;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
         }
         
         /* 响应式设计 */
@@ -542,10 +535,7 @@
         </div>
         
         <div class="download-buttons">
-            <button class="btn btn-primary" id="download-all">
-                <span id="download-text">下载实验数据包(ZIP)</span>
-                <span id="download-loading" class="hidden loading"></span>
-            </button>
+            <button class="btn btn-primary" id="download-all">下载实验数据包(ZIP)</button>
             <button class="btn" id="restart-experiment">重新开始实验</button>
         </div>
     </div>
@@ -670,33 +660,28 @@
                 totalTime: 0
             },
             currentImageIndex: 0,
-            totalImages: 0, // 初始为0，自动检测
+            totalImages: 0,
             audioContext: null,
             mediaStream: null,
             processor: null,
             wavEncoder: null,
             isRecording: false,
             wavBlob: null,
-            // 新增：图片浏览时间记录
             imageViewTimes: [],
             currentImageViewStart: null,
-            // 新增：页面切换记录
             pageNavigationLog: [],
-            // 新增：录音开始时间戳
             recordingStartTimestamp: null,
-            // 新增：实验完成时间戳
             experimentEndTimestamp: null,
-            // 新增：是否正在生成ZIP文件
             isGeneratingZip: false
         };
 
         // 应用配置
         const AppConfig = {
-            imageFolder: 'picture', // 图片文件夹名称
-            imageFormat: 'jpg',     // 图片格式：jpg, png, gif等
-            startIndex: 1,          // 图片起始编号
-            maxImages: 50,          // 最大检测图片数量
-            audioSampleRate: 44100  // 音频采样率
+            imageFolder: 'picture',
+            imageFormat: 'jpg',
+            startIndex: 1,
+            maxImages: 50,
+            audioSampleRate: 44100
         };
 
         // DOM元素
@@ -728,71 +713,50 @@
             setupEventListeners();
         }
 
-        // 检测图片总数
+        // 检测图片总数（简化版，适合GitHub Pages）
         async function detectTotalImages() {
             const resultDiv = document.getElementById('image-check-result');
-            resultDiv.innerHTML = '';
+            resultDiv.innerHTML = '<div>正在检测图片...</div>';
             
-            let count = 0;
-            let found = true;
-            const checkedImages = [];
+            // 简化检测逻辑：尝试检测1-10张图片
+            let detectedCount = 0;
+            const imageFormats = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
             
-            // 检查图片是否存在
-            for (let i = AppConfig.startIndex; i <= AppConfig.maxImages; i++) {
-                const imageUrl = `${AppConfig.imageFolder}/${i}.${AppConfig.imageFormat}`;
-                const exists = await checkImageExists(imageUrl);
+            for (let i = 1; i <= 10; i++) {
+                let found = false;
                 
-                if (exists) {
-                    count++;
-                    checkedImages.push({ number: i, url: imageUrl, exists: true });
-                } else {
-                    // 尝试其他常见格式
-                    const otherFormats = ['png', 'jpeg', 'gif', 'webp'];
-                    let alternativeFound = false;
+                for (const format of imageFormats) {
+                    const imageUrl = `${AppConfig.imageFolder}/${i}.${format}`;
+                    const exists = await checkImageExists(imageUrl);
                     
-                    for (const format of otherFormats) {
-                        const altUrl = `${AppConfig.imageFolder}/${i}.${format}`;
-                        const altExists = await checkImageExists(altUrl);
-                        
-                        if (altExists) {
-                            checkedImages.push({ number: i, url: altUrl, exists: true });
-                            count++;
-                            alternativeFound = true;
-                            // 更新配置格式为找到的格式
-                            AppConfig.imageFormat = format;
-                            break;
+                    if (exists) {
+                        found = true;
+                        if (i > detectedCount) {
+                            detectedCount = i;
                         }
-                    }
-                    
-                    if (!alternativeFound) {
-                        checkedImages.push({ number: i, url: imageUrl, exists: false });
-                        // 如果连续3张图片都不存在，停止检测
-                        if (i - AppConfig.startIndex >= 3 && count === 0) {
-                            break;
-                        }
+                        // 记录检测到的格式
+                        AppConfig.imageFormat = format;
+                        break;
                     }
                 }
                 
-                // 显示检测进度
-                if (i <= 10) { // 只显示前10张的检测结果
-                    resultDiv.innerHTML += `<div>检查图片 ${i}.${AppConfig.imageFormat}: ${checkedImages[i-1].exists ? '✓ 存在' : '✗ 不存在'}</div>`;
+                // 如果连续2张图片都没找到，停止检测
+                if (!found && i > 2 && detectedCount === 0) {
+                    break;
                 }
             }
             
-            AppState.totalImages = count;
+            AppState.totalImages = detectedCount > 0 ? detectedCount : 5; // 默认5张
             
-            if (count > 0) {
-                resultDiv.innerHTML = `<div class="error-message" style="background-color:#e8f5e8;color:#2d572d;border-color:#a3e4a3;">
-                    检测到 ${count} 张图片，格式为 ${AppConfig.imageFormat}
+            if (detectedCount > 0) {
+                resultDiv.innerHTML = `<div class="success-message">
+                    检测到 ${detectedCount} 张图片，格式为 ${AppConfig.imageFormat}
                 </div>`;
-                console.log(`检测到 ${count} 张图片，格式为 ${AppConfig.imageFormat}`);
             } else {
                 resultDiv.innerHTML = `<div class="error-message">
-                    未检测到任何图片！请确保在 <strong>${AppConfig.imageFolder}</strong> 文件夹中有按数字命名的图片文件（如 1.jpg, 2.jpg...）
+                    未检测到图片，将使用默认设置（5张图片）
+                    <br><small>请确保在 <strong>${AppConfig.imageFolder}</strong> 文件夹中有按数字命名的图片文件</small>
                 </div>`;
-                console.warn('未检测到任何图片');
-                // 设置默认值以便继续测试
-                AppState.totalImages = 5;
             }
             
             // 初始化图片浏览时间记录数组
@@ -852,7 +816,7 @@
                     AppState.currentImageViewStart = null;
                 }
                 goToStep(4);
-                setTimeout(initRecording, 500); // 延迟初始化录音，确保UI更新完成
+                setTimeout(initRecording, 500);
             });
 
             // 完成录音按钮
@@ -861,7 +825,7 @@
             // 空格键结束录音
             document.addEventListener('keydown', function(e) {
                 if (e.code === 'Space' && AppState.isRecording && AppState.currentStep === 4) {
-                    e.preventDefault(); // 防止空格键滚动页面
+                    e.preventDefault();
                     stopRecording();
                 }
             });
@@ -967,11 +931,11 @@
             imgElement.onerror = function() {
                 console.error(`无法加载图片: ${imageUrl}`);
                 // 显示占位图片
-                this.onerror = null; // 防止无限循环
-                this.src = `https://placehold.co/800x500/ffcccc/white?text=图片${imageNumber}加载失败&font=arial`;
+                this.onerror = null;
+                this.src = `https://placehold.co/800x500/4a6fa5/white?text=故事图片${imageNumber}&font=arial`;
+                this.alt = `故事图片 ${imageNumber}（占位图）`;
             };
             
-            // 设置加载完成处理
             imgElement.onload = function() {
                 console.log(`成功加载图片: ${imageUrl}`);
             };
@@ -1021,8 +985,8 @@
                 // 添加错误处理
                 img.onerror = function() {
                     console.error(`无法加载缩略图: ${imageUrl}`);
-                    this.onerror = null; // 防止无限循环
-                    this.src = `https://placehold.co/180x120/ffcccc/white?text=图片${i+1}加载失败&font=arial`;
+                    this.onerror = null;
+                    this.src = `https://placehold.co/180x120/6b9ac4/white?text=图片${i+1}&font=arial`;
                 };
                 
                 container.appendChild(img);
@@ -1194,7 +1158,7 @@
             // 停止备选方案的录音
             if (AppState.mediaRecorderFallback && AppState.mediaRecorderFallback.state === 'recording') {
                 AppState.mediaRecorderFallback.stop();
-                return; // 事件监听器会处理后续
+                return;
             }
             
             // 生成WAV文件
@@ -1378,12 +1342,12 @@
                 };
             }
             
-            // 显示数据文件信息（ZIP包大小）
+            // 显示数据文件信息
             const dataContent = generateExperimentData();
             const dataSize = new Blob([dataContent]).size;
             const audioSize = AppState.wavBlob ? AppState.wavBlob.size : 0;
             const readmeSize = new Blob([generateReadmeContent()]).size;
-            const estimatedZipSize = dataSize + audioSize + readmeSize; // 近似值，实际ZIP会有压缩
+            const estimatedZipSize = dataSize + audioSize + readmeSize;
             document.getElementById('summary-data-file').textContent = `ZIP包, 约${(estimatedZipSize / 1024).toFixed(2)}KB`;
         }
 
@@ -1395,19 +1359,15 @@
             }
             
             if (AppState.isGeneratingZip) {
-                return; // 防止重复点击
+                return;
             }
             
             try {
-                // 设置下载状态
                 AppState.isGeneratingZip = true;
                 const downloadBtn = document.getElementById('download-all');
-                const downloadText = document.getElementById('download-text');
-                const downloadLoading = document.getElementById('download-loading');
-                
+                const originalText = downloadBtn.textContent;
+                downloadBtn.textContent = '正在生成ZIP文件...';
                 downloadBtn.disabled = true;
-                downloadText.textContent = '正在生成ZIP文件...';
-                downloadLoading.classList.remove('hidden');
                 
                 // 创建ZIP文件
                 const zip = new JSZip();
@@ -1432,17 +1392,12 @@
                 const readmeFilename = `${namePrefix}文件说明_${timestamp}.txt`;
                 zip.file(readmeFilename, readmeContent);
                 
-                // 4. 添加实验摘要文件（简化版）
-                const summaryContent = generateSummaryContent();
-                const summaryFilename = `${namePrefix}实验摘要_${timestamp}.txt`;
-                zip.file(summaryFilename, summaryContent);
-                
                 // 生成ZIP文件
                 const zipBlob = await zip.generateAsync({ 
                     type: 'blob',
                     compression: 'DEFLATE',
                     compressionOptions: {
-                        level: 6 // 中等压缩级别
+                        level: 6
                     }
                 });
                 
@@ -1462,54 +1417,20 @@
                 }, 100);
                 
                 // 恢复按钮状态
+                downloadBtn.textContent = originalText;
                 downloadBtn.disabled = false;
-                downloadText.textContent = '下载实验数据包(ZIP)';
-                downloadLoading.classList.add('hidden');
                 AppState.isGeneratingZip = false;
                 
             } catch (error) {
                 console.error('创建ZIP文件失败:', error);
-                alert('创建压缩文件失败，请检查网络连接后重试。');
+                alert('创建压缩文件失败，请重试。');
                 
                 // 恢复按钮状态
                 const downloadBtn = document.getElementById('download-all');
-                const downloadText = document.getElementById('download-text');
-                const downloadLoading = document.getElementById('download-loading');
-                
+                downloadBtn.textContent = '下载实验数据包(ZIP)';
                 downloadBtn.disabled = false;
-                downloadText.textContent = '下载实验数据包(ZIP)';
-                downloadLoading.classList.add('hidden');
                 AppState.isGeneratingZip = false;
             }
-        }
-
-        // 生成实验摘要内容（简化版）
-        function generateSummaryContent() {
-            const formatTime = (ms) => {
-                if (!ms || ms <= 0) return '0秒';
-                const seconds = Math.floor(ms / 1000);
-                const minutes = Math.floor(seconds / 60);
-                const remainingSeconds = seconds % 60;
-                
-                if (minutes > 0) {
-                    return `${minutes}分${remainingSeconds}秒`;
-                } else {
-                    return `${remainingSeconds}秒`;
-                }
-            };
-            
-            let content = `=== 故事讲述实验摘要 ===\n\n`;
-            content += `姓名：${AppState.childInfo.name || '未填写'}\n`;
-            content += `年龄：${AppState.childInfo.age || '未填写'}\n`;
-            content += `性别：${AppState.childInfo.gender || '未填写'}\n`;
-            content += `实验日期：${new Date(AppState.childInfo.experimentDate).toLocaleDateString('zh-CN')}\n\n`;
-            content += `实验用时：${formatTime(AppState.timers.totalTime)}\n`;
-            content += `浏览用时：${formatTime(AppState.timers.browsingTime)}\n`;
-            content += `录音用时：${formatTime(AppState.timers.recordingTime)}\n`;
-            content += `图片数量：${AppState.totalImages}张\n\n`;
-            content += `数据生成时间：${new Date().toLocaleString('zh-CN')}\n`;
-            
-            return content;
         }
 
         // 重新开始实验
