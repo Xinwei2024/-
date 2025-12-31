@@ -411,7 +411,7 @@
             <div class="form-group">
                 <label for="image-count">故事图片数量：</label>
                 <input type="number" id="image-count" min="1" max="50" value="5" placeholder="默认为5">
-                <small>如果自动检测失败，请手动设置</small>
+                <small>请输入您picture文件夹中的图片数量</small>
             </div>
             
             <div id="image-check-result"></div>
@@ -430,7 +430,7 @@
         <h2>实验指导语</h2>
         
         <div class="instructions">
-            <p>亲爱的朋友，你好！</p>
+            <p>亲爱的小朋友，你好！</p>
             <p>欢迎参加我们的讲故事实验。</p>
             <p>接下来你会看到一组图片，它们讲述了一个完整的故事。</p>
             <p>首先，请你仔细浏览每一张图片，了解整个故事的内容。</p>
@@ -669,7 +669,7 @@
                 totalTime: 0
             },
             currentImageIndex: 0,
-            totalImages: 6, // 默认值
+            totalImages: 5, // 默认值
             audioContext: null,
             mediaStream: null,
             processor: null,
@@ -684,14 +684,14 @@
             isGeneratingZip: false
         };
 
-        // 应用配置 - 关键修改：适应GitHub Pages路径
+        // 应用配置 - 根据你的实际路径修改
         const AppConfig = {
-            imageFolder: '/-/picture', // GitHub Pages路径
-            imageFormat: 'png',
+            imageFolder: 'picture', // 使用相对路径
+            imageFormat: 'png', // 改为png格式
             startIndex: 1,
             maxImages: 50,
             audioSampleRate: 44100,
-            imageFormats: ['jpg', 'jpeg', 'png', 'gif', 'webp']
+            imageFormats: ['png', 'jpg', 'jpeg', 'gif', 'webp'] // png放在第一位
         };
 
         // DOM元素
@@ -711,6 +711,10 @@
             console.log('初始化应用...');
             console.log('当前页面URL:', window.location.href);
             console.log('图片路径配置:', AppConfig.imageFolder);
+            console.log('图片格式配置:', AppConfig.imageFormat);
+            
+            // 自动检测当前页面的路径
+            detectPagePath();
             
             // 设置当前日期时间为默认值
             const now = new Date();
@@ -732,9 +736,22 @@
             // 显示当前配置
             document.getElementById('image-check-result').innerHTML = `
                 <div class="success-message">
-                    当前图片路径: ${AppConfig.imageFolder}/1.png
+                    当前图片路径: ${AppConfig.imageFolder}/1.${AppConfig.imageFormat}<br>
+                    使用相对路径，适配GitHub Pages
                 </div>
             `;
+        }
+        
+        // 自动检测页面路径
+        function detectPagePath() {
+            const currentUrl = window.location.href;
+            console.log('当前完整URL:', currentUrl);
+            
+            // 如果URL中包含/story_rabbit/，则使用相对路径
+            if (currentUrl.includes('/story_rabbit/')) {
+                console.log('检测到story_rabbit仓库');
+                // 保持相对路径
+            }
         }
 
         // 检查图片是否存在
@@ -844,27 +861,59 @@
             const manualCount = parseInt(document.getElementById('image-count').value) || 5;
             AppState.totalImages = manualCount;
             
-            // 测试前3张图片
+            // 测试不同格式的图片
             let successCount = 0;
+            let foundFormat = AppConfig.imageFormat;
             const testResults = [];
             
+            // 先测试PNG格式
+            console.log('测试PNG格式图片...');
             for (let i = 1; i <= Math.min(3, AppState.totalImages); i++) {
-                const testUrl = `${AppConfig.imageFolder}/${i}.${AppConfig.imageFormat}`;
+                const testUrl = `${AppConfig.imageFolder}/${i}.png`;
+                console.log(`测试URL: ${testUrl}`);
                 
                 try {
                     const exists = await checkImageExists(testUrl);
                     if (exists) {
                         successCount++;
-                        testResults.push(`✅ 图片 ${i}: 可加载`);
+                        testResults.push(`✅ 图片 ${i}.png: 可加载`);
+                        foundFormat = 'png';
+                        AppConfig.imageFormat = 'png'; // 更新配置
                     } else {
-                        testResults.push(`❌ 图片 ${i}: 不可加载`);
+                        testResults.push(`❌ 图片 ${i}.png: 不可加载`);
                     }
                 } catch (error) {
-                    testResults.push(`❌ 图片 ${i}: 检测失败`);
+                    testResults.push(`❌ 图片 ${i}.png: 检测失败`);
                 }
                 
                 // 延迟一下，避免请求过快
                 await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            // 如果PNG失败，测试JPG格式
+            if (successCount === 0) {
+                console.log('PNG格式失败，测试JPG格式...');
+                for (let i = 1; i <= Math.min(3, AppState.totalImages); i++) {
+                    const testUrl = `${AppConfig.imageFolder}/${i}.jpg`;
+                    console.log(`测试URL: ${testUrl}`);
+                    
+                    try {
+                        const exists = await checkImageExists(testUrl);
+                        if (exists) {
+                            successCount++;
+                            testResults.push(`✅ 图片 ${i}.jpg: 可加载`);
+                            foundFormat = 'jpg';
+                            AppConfig.imageFormat = 'jpg'; // 更新配置
+                            break; // 找到一个就够
+                        } else {
+                            testResults.push(`❌ 图片 ${i}.jpg: 不可加载`);
+                        }
+                    } catch (error) {
+                        testResults.push(`❌ 图片 ${i}.jpg: 检测失败`);
+                    }
+                    
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
             }
             
             if (successCount > 0) {
@@ -872,8 +921,9 @@
                     <div class="success-message">
                         <strong>✅ 图片加载测试成功！</strong><br>
                         ${testResults.join('<br>')}<br><br>
-                        已检测到 ${successCount} 张图片可正常加载<br>
-                        使用图片数量: ${AppState.totalImages}
+                        检测到图片格式: <strong>${foundFormat}</strong><br>
+                        使用图片数量: ${AppState.totalImages}<br>
+                        图片路径示例: ${AppConfig.imageFolder}/1.${foundFormat}
                     </div>
                 `;
             } else {
@@ -882,10 +932,10 @@
                         <strong>❌ 图片加载测试失败</strong><br>
                         ${testResults.join('<br>')}<br><br>
                         请检查：<br>
-                        1. 图片文件夹路径是否正确<br>
-                        2. 图片格式是否正确（当前: ${AppConfig.imageFormat})<br>
-                        3. 图片文件名是否为 1.png, 2.png 格式<br>
-                        4. GitHub Pages 是否已正确部署
+                        1. 图片是否放在 <strong>${AppConfig.imageFolder}</strong> 文件夹中<br>
+                        2. 图片文件名是否为 <strong>1.png, 2.png</strong> 格式<br>
+                        3. GitHub Pages 是否已正确部署<br>
+                        4. 可以尝试访问: <a href="${AppConfig.imageFolder}/1.png" target="_blank">${AppConfig.imageFolder}/1.png</a>
                     </div>
                 `;
             }
