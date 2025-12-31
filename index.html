@@ -95,6 +95,8 @@
         .story-container {
             text-align: center;
             margin: 25px 0;
+            position: relative;
+            min-height: 500px;
         }
         
         .story-image {
@@ -104,6 +106,34 @@
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
             margin-bottom: 20px;
             border: 5px solid white;
+            transition: opacity 0.3s;
+        }
+        
+        .preloading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            padding: 50px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 15px;
+            z-index: 10;
+        }
+        
+        .loading-spinner {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #4a6fa5;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         
         .navigation {
@@ -453,6 +483,11 @@
         <p>请仔细观看每一张图片，了解整个故事内容。</p>
         
         <div class="story-container">
+            <div id="preloading-message" class="preloading hidden">
+                <div class="loading-spinner"></div>
+                <p>正在预加载图片，请稍候...</p>
+                <div id="loading-progress">0 / 0</div>
+            </div>
             <img id="current-image" class="story-image" src="" alt="故事图片">
             <div class="page-indicator">
                 <span id="current-page">1</span> / <span id="total-pages">0</span>
@@ -681,12 +716,16 @@
             pageNavigationLog: [],
             recordingStartTimestamp: null,
             experimentEndTimestamp: null,
-            isGeneratingZip: false
+            isGeneratingZip: false,
+            // 新增：图片预加载相关
+            preloadedImages: [], // 预加载的图片对象数组
+            isPreloading: false,
+            preloadProgress: 0
         };
 
-        // 应用配置 - 使用自动检测的路径
+        // 应用配置
         const AppConfig = {
-            imageFolder: '', // 初始为空，根据页面自动检测
+            imageFolder: '/story_rabbit/picture', // 你的GitHub Pages路径
             imageFormat: 'png', // 你的图片是png格式
             startIndex: 1,
             maxImages: 50,
@@ -711,9 +750,6 @@
             console.log('初始化应用...');
             console.log('当前页面URL:', window.location.href);
             
-            // 自动检测当前页面的路径
-            detectBasePath();
-            
             // 设置当前日期时间为默认值
             const now = new Date();
             const localDateTime = now.toISOString().slice(0, 16);
@@ -734,43 +770,11 @@
             // 显示当前配置
             document.getElementById('image-check-result').innerHTML = `
                 <div class="success-message">
-                    已自动检测路径配置<br>
-                    图片路径: ${AppConfig.imageFolder || '自动检测'} <br>
+                    当前配置<br>
+                    图片路径: ${AppConfig.imageFolder}<br>
                     图片格式: ${AppConfig.imageFormat}
                 </div>
             `;
-        }
-        
-        // 自动检测基础路径
-        function detectBasePath() {
-            const currentUrl = window.location.href;
-            console.log('当前完整URL:', currentUrl);
-            
-            // 如果URL中包含/story_rabbit/，则设置正确的路径
-            if (currentUrl.includes('github.io')) {
-                if (currentUrl.includes('/story_rabbit/')) {
-                    // GitHub Pages特定路径
-                    const urlObj = new URL(currentUrl);
-                    const pathParts = urlObj.pathname.split('/');
-                    // 获取基础路径（通常是 /story_rabbit/）
-                    let basePath = '';
-                    for (let i = 1; i < pathParts.length - 1; i++) {
-                        if (pathParts[i]) {
-                            basePath += '/' + pathParts[i];
-                        }
-                    }
-                    AppConfig.imageFolder = basePath + '/picture';
-                    console.log('GitHub Pages路径检测:', basePath);
-                } else {
-                    // 可能是根目录
-                    AppConfig.imageFolder = '/picture';
-                }
-            } else {
-                // 本地开发环境，使用相对路径
-                AppConfig.imageFolder = 'picture';
-            }
-            
-            console.log('设置的图片文件夹:', AppConfig.imageFolder);
         }
 
         // 检查图片是否存在
@@ -788,7 +792,6 @@
                 img.onload = function() {
                     if (!timedOut) {
                         clearTimeout(timer);
-                        console.log('✅ 图片加载成功:', url);
                         resolve(true);
                     }
                 };
@@ -796,14 +799,12 @@
                 img.onerror = function() {
                     if (!timedOut) {
                         clearTimeout(timer);
-                        console.log('❌ 图片加载失败:', url);
                         resolve(false);
                     }
                 };
                 
                 // 添加时间戳防止缓存
                 const cacheBuster = `?t=${Date.now()}`;
-                console.log('尝试加载:', url + cacheBuster);
                 img.src = url + cacheBuster;
             });
         }
@@ -826,9 +827,20 @@
             document.getElementById('back-to-story').addEventListener('click', () => goToStep(3));
 
             // 开始故事浏览
-            document.getElementById('start-story').addEventListener('click', () => {
+            document.getElementById('start-story').addEventListener('click', async () => {
                 AppState.timers.browsingStart = Date.now();
                 AppState.timers.totalStart = Date.now();
+                
+                // 显示预加载界面
+                showPreloading();
+                
+                // 预加载所有图片
+                await preloadAllImages();
+                
+                // 隐藏预加载界面
+                hidePreloading();
+                
+                // 开始浏览故事
                 loadStoryImages();
                 goToStep(3);
             });
@@ -869,6 +881,95 @@
             document.getElementById('restart-experiment').addEventListener('click', restartExperiment);
         }
 
+        // 显示预加载界面
+        function showPreloading() {
+            const preloadingDiv = document.getElementById('preloading-message');
+            preloadingDiv.classList.remove('hidden');
+            updatePreloadProgress(0, AppState.totalImages);
+        }
+
+        // 隐藏预加载界面
+        function hidePreloading() {
+            const preloadingDiv = document.getElementById('preloading-message');
+            preloadingDiv.classList.add('hidden');
+        }
+
+        // 更新预加载进度
+        function updatePreloadProgress(loaded, total) {
+            const progressElement = document.getElementById('loading-progress');
+            if (progressElement) {
+                progressElement.textContent = `${loaded} / ${total}`;
+            }
+        }
+
+        // 预加载所有图片
+        async function preloadAllImages() {
+            AppState.isPreloading = true;
+            AppState.preloadedImages = [];
+            AppState.preloadProgress = 0;
+            
+            const totalImages = AppState.totalImages;
+            let loadedCount = 0;
+            
+            console.log(`开始预加载 ${totalImages} 张图片...`);
+            
+            // 预加载图片的Promise数组
+            const preloadPromises = [];
+            
+            for (let i = 0; i < totalImages; i++) {
+                const imageNumber = i + AppConfig.startIndex;
+                const imageUrl = `${AppConfig.imageFolder}/${imageNumber}.${AppConfig.imageFormat}`;
+                
+                // 创建预加载Promise
+                const preloadPromise = new Promise((resolve, reject) => {
+                    const img = new Image();
+                    
+                    img.onload = () => {
+                        loadedCount++;
+                        AppState.preloadedImages[i] = img;
+                        updatePreloadProgress(loadedCount, totalImages);
+                        console.log(`✅ 预加载图片 ${i+1}: ${imageUrl}`);
+                        resolve(img);
+                    };
+                    
+                    img.onerror = () => {
+                        loadedCount++;
+                        console.error(`❌ 预加载图片失败: ${imageUrl}`);
+                        // 创建占位图片
+                        const placeholder = new Image();
+                        placeholder.src = `https://placehold.co/800x500/4a6fa5/white?text=图片${imageNumber}&font=arial`;
+                        AppState.preloadedImages[i] = placeholder;
+                        updatePreloadProgress(loadedCount, totalImages);
+                        resolve(placeholder);
+                    };
+                    
+                    // 添加时间戳防止缓存
+                    const cacheBuster = `?preload=${Date.now() + i}`;
+                    img.src = imageUrl + cacheBuster;
+                    img.alt = `故事图片 ${imageNumber}`;
+                });
+                
+                preloadPromises.push(preloadPromise);
+                
+                // 控制并发数量，避免同时加载太多图片
+                if (preloadPromises.length >= 3) {
+                    await Promise.all(preloadPromises);
+                    preloadPromises.length = 0;
+                    // 短暂延迟，避免请求过快
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+            
+            // 等待剩余的图片加载完成
+            if (preloadPromises.length > 0) {
+                await Promise.all(preloadPromises);
+            }
+            
+            console.log(`✅ 图片预加载完成，共加载 ${loadedCount} 张图片`);
+            AppState.isPreloading = false;
+            return true;
+        }
+
         // 测试图片加载
         async function testImageLoading() {
             const testBtn = document.getElementById('test-images');
@@ -883,59 +984,23 @@
             const manualCount = parseInt(document.getElementById('image-count').value) || 5;
             AppState.totalImages = manualCount;
             
-            // 测试不同路径组合
-            const testPaths = [
-                '/story_rabbit/picture/1.png',  // GitHub Pages绝对路径
-                './picture/1.png',               // 相对路径
-                'picture/1.png',                 // 相对路径
-                '/picture/1.png',                // 根目录路径
-                '1.png'                          // 当前目录
-            ];
-            
+            // 测试前3张图片
             let successCount = 0;
-            let foundUrl = '';
-            let foundFormat = AppConfig.imageFormat;
             const testResults = [];
             
-            console.log('开始测试图片加载，测试路径:');
-            console.log(testPaths);
-            
-            for (const testPath of testPaths) {
-                console.log(`测试路径: ${testPath}`);
+            for (let i = 1; i <= Math.min(3, AppState.totalImages); i++) {
+                const testUrl = `${AppConfig.imageFolder}/${i}.${AppConfig.imageFormat}`;
                 
                 try {
-                    const exists = await checkImageExists(testPath);
+                    const exists = await checkImageExists(testUrl);
                     if (exists) {
                         successCount++;
-                        testResults.push(`✅ 发现可用路径: ${testPath}`);
-                        foundUrl = testPath;
-                        
-                        // 解析路径
-                        const pathParts = testPath.split('/');
-                        const filename = pathParts[pathParts.length - 1];
-                        const formatMatch = filename.match(/\.([a-zA-Z0-9]+)$/);
-                        if (formatMatch) {
-                            foundFormat = formatMatch[1];
-                            AppConfig.imageFormat = foundFormat;
-                        }
-                        
-                        // 设置正确的imageFolder
-                        if (testPath.includes('/')) {
-                            AppConfig.imageFolder = testPath.substring(0, testPath.lastIndexOf('/'));
-                        } else {
-                            AppConfig.imageFolder = '';
-                        }
-                        
-                        console.log(`✅ 找到可用路径: ${testPath}`);
-                        console.log(`设置imageFolder为: ${AppConfig.imageFolder}`);
-                        console.log(`设置imageFormat为: ${AppConfig.imageFormat}`);
-                        break; // 找到一个就停止
+                        testResults.push(`✅ 图片 ${i}.${AppConfig.imageFormat}: 可加载`);
                     } else {
-                        testResults.push(`❌ 路径不可用: ${testPath}`);
+                        testResults.push(`❌ 图片 ${i}.${AppConfig.imageFormat}: 不可加载`);
                     }
                 } catch (error) {
-                    testResults.push(`❌ 检测失败: ${testPath}`);
-                    console.log(`路径测试失败: ${testPath}`, error);
+                    testResults.push(`❌ 图片 ${i}.${AppConfig.imageFormat}: 检测失败`);
                 }
                 
                 // 延迟一下，避免请求过快
@@ -947,55 +1012,24 @@
                     <div class="success-message">
                         <strong>✅ 图片加载测试成功！</strong><br>
                         ${testResults.join('<br>')}<br><br>
-                        检测到图片格式: <strong>${foundFormat}</strong><br>
+                        检测到图片格式: <strong>${AppConfig.imageFormat}</strong><br>
                         图片路径: <strong>${AppConfig.imageFolder}</strong><br>
                         使用图片数量: ${AppState.totalImages}<br>
-                        示例URL: <a href="${foundUrl}" target="_blank">${foundUrl}</a>
+                        示例URL: <a href="${AppConfig.imageFolder}/1.${AppConfig.imageFormat}" target="_blank">${AppConfig.imageFolder}/1.${AppConfig.imageFormat}</a>
                     </div>
                 `;
             } else {
-                // 显示详细的帮助信息
-                const currentPageUrl = window.location.href;
-                const pagePath = currentPageUrl.replace(/\/[^\/]*$/, '');
-                
                 resultDiv.innerHTML = `
                     <div class="error-message">
                         <strong>❌ 图片加载测试失败</strong><br>
                         ${testResults.join('<br>')}<br><br>
-                        <strong>调试信息：</strong><br>
-                        当前页面URL: ${currentPageUrl}<br>
-                        页面路径: ${pagePath}<br>
-                        <br>
-                        <strong>手动设置路径：</strong><br>
-                        <div style="margin-top: 10px;">
-                            <label>图片文件夹路径:</label>
-                            <input type="text" id="manual-path" value="${AppConfig.imageFolder}" placeholder="如: /story_rabbit/picture" style="width: 100%; margin-bottom: 10px;">
-                            <label>图片格式:</label>
-                            <input type="text" id="manual-format" value="${AppConfig.imageFormat}" placeholder="如: png" style="width: 100px;">
-                            <button id="set-manual" class="btn" style="margin-left: 10px; padding: 5px 10px;">手动设置</button>
-                        </div>
+                        请检查：<br>
+                        1. 图片路径是否正确: ${AppConfig.imageFolder}<br>
+                        2. 图片格式是否正确: ${AppConfig.imageFormat}<br>
+                        3. 图片文件名是否为 1.${AppConfig.imageFormat}, 2.${AppConfig.imageFormat} 格式<br>
+                        4. GitHub Pages 是否已正确部署
                     </div>
                 `;
-                
-                // 添加手动设置按钮事件
-                setTimeout(() => {
-                    const setManualBtn = document.getElementById('set-manual');
-                    if (setManualBtn) {
-                        setManualBtn.addEventListener('click', function() {
-                            const manualPath = document.getElementById('manual-path').value;
-                            const manualFormat = document.getElementById('manual-format').value;
-                            
-                            AppConfig.imageFolder = manualPath;
-                            AppConfig.imageFormat = manualFormat;
-                            
-                            resultDiv.innerHTML = `<div class="success-message">
-                                已手动设置:<br>
-                                图片路径: ${AppConfig.imageFolder}<br>
-                                图片格式: ${AppConfig.imageFormat}
-                            </div>`;
-                        });
-                    }
-                }, 100);
             }
             
             testBtn.textContent = originalText;
@@ -1075,7 +1109,7 @@
             });
         }
 
-        // 加载故事图片
+        // 加载故事图片（使用预加载的图片）
         function loadStoryImages() {
             AppState.currentImageIndex = 0;
             document.getElementById('total-pages').textContent = AppState.totalImages;
@@ -1087,7 +1121,7 @@
             showCurrentImage();
         }
 
-        // 显示当前图片
+        // 显示当前图片（使用预加载的图片）
         function showCurrentImage() {
             // 记录前一张图片的浏览时间
             if (AppState.currentImageViewStart && AppState.currentImageIndex >= 0) {
@@ -1097,32 +1131,36 @@
                 }
             }
             
-            const imageNumber = AppState.currentImageIndex + AppConfig.startIndex;
-            const imageUrl = `${AppConfig.imageFolder}/${imageNumber}.${AppConfig.imageFormat}`;
-            
             const imgElement = document.getElementById('current-image');
             
-            console.log('加载图片:', imageUrl);
-            
-            // 清除之前的错误处理
-            imgElement.onerror = null;
-            
-            // 设置新的错误处理
-            imgElement.onerror = function() {
-                console.error(`无法加载图片: ${imageUrl}`);
-                // 显示占位图片
-                this.onerror = null; // 防止循环
-                this.src = `https://placehold.co/800x500/4a6fa5/white?text=故事图片${imageNumber}&font=arial`;
-                this.alt = `故事图片 ${imageNumber}（占位图）`;
-            };
-            
-            imgElement.onload = function() {
-                console.log(`成功加载图片: ${imageUrl}`);
-            };
-            
-            // 添加时间戳防止缓存
-            imgElement.src = imageUrl + `?t=${Date.now()}`;
-            imgElement.alt = `故事图片 ${imageNumber}`;
+            // 检查是否有预加载的图片
+            if (AppState.preloadedImages && AppState.preloadedImages[AppState.currentImageIndex]) {
+                // 使用预加载的图片
+                const preloadedImg = AppState.preloadedImages[AppState.currentImageIndex];
+                imgElement.src = preloadedImg.src;
+                imgElement.alt = preloadedImg.alt;
+                console.log(`使用预加载的图片: ${AppState.currentImageIndex + 1}`);
+            } else {
+                // 回退到动态加载
+                const imageNumber = AppState.currentImageIndex + AppConfig.startIndex;
+                const imageUrl = `${AppConfig.imageFolder}/${imageNumber}.${AppConfig.imageFormat}`;
+                
+                // 清除之前的错误处理
+                imgElement.onerror = null;
+                
+                // 设置新的错误处理
+                imgElement.onerror = function() {
+                    console.error(`无法加载图片: ${imageUrl}`);
+                    // 显示占位图片
+                    this.onerror = null; // 防止循环
+                    this.src = `https://placehold.co/800x500/4a6fa5/white?text=故事图片${imageNumber}&font=arial`;
+                    this.alt = `故事图片 ${imageNumber}（占位图）`;
+                };
+                
+                // 添加时间戳防止缓存
+                imgElement.src = imageUrl + `?t=${Date.now()}`;
+                imgElement.alt = `故事图片 ${imageNumber}`;
+            }
             
             document.getElementById('current-page').textContent = AppState.currentImageIndex + 1;
             
@@ -1137,6 +1175,37 @@
                 prevBtn.disabled = AppState.currentImageIndex === 0;
                 nextBtn.disabled = AppState.currentImageIndex === AppState.totalImages - 1;
             }
+            
+            // 预加载下一张图片（如果还没预加载的话）
+            preloadNextImages();
+        }
+
+        // 预加载后续图片
+        function preloadNextImages() {
+            // 预加载接下来的2张图片
+            const nextIndex1 = AppState.currentImageIndex + 1;
+            const nextIndex2 = AppState.currentImageIndex + 2;
+            
+            [nextIndex1, nextIndex2].forEach(nextIndex => {
+                if (nextIndex < AppState.totalImages && 
+                    (!AppState.preloadedImages[nextIndex] || !AppState.preloadedImages[nextIndex].src)) {
+                    
+                    const imageNumber = nextIndex + AppConfig.startIndex;
+                    const imageUrl = `${AppConfig.imageFolder}/${imageNumber}.${AppConfig.imageFormat}`;
+                    
+                    const img = new Image();
+                    img.onload = () => {
+                        console.log(`预加载后续图片: ${nextIndex + 1}`);
+                        AppState.preloadedImages[nextIndex] = img;
+                    };
+                    
+                    img.onerror = () => {
+                        console.log(`后续图片预加载失败: ${imageUrl}`);
+                    };
+                    
+                    img.src = imageUrl + `?preload-next=${Date.now()}`;
+                }
+            });
         }
 
         // 显示上一张图片
@@ -1165,18 +1234,26 @@
             for (let i = 0; i < AppState.totalImages; i++) {
                 const img = document.createElement('img');
                 const imageNumber = i + AppConfig.startIndex;
-                const imageUrl = `${AppConfig.imageFolder}/${imageNumber}.${AppConfig.imageFormat}`;
                 
-                // 添加时间戳防止缓存
-                const cacheBuster = `?t=${Date.now() + i}`; // 每张图片不同的时间戳
+                // 检查是否有预加载的图片
+                if (AppState.preloadedImages && AppState.preloadedImages[i]) {
+                    // 使用预加载的图片
+                    img.src = AppState.preloadedImages[i].src;
+                    img.alt = AppState.preloadedImages[i].alt;
+                } else {
+                    // 动态加载
+                    const imageUrl = `${AppConfig.imageFolder}/${imageNumber}.${AppConfig.imageFormat}`;
+                    // 添加时间戳防止缓存
+                    const cacheBuster = `?t=${Date.now() + i}`;
+                    img.src = imageUrl + cacheBuster;
+                    img.alt = `故事图片 ${i + 1}`;
+                }
                 
-                img.src = imageUrl + cacheBuster;
-                img.alt = `故事图片 ${i + 1}`;
                 img.className = 'story-thumbnail';
                 
                 // 添加错误处理
                 img.onerror = function() {
-                    console.error(`无法加载缩略图: ${imageUrl}`);
+                    console.error(`无法加载缩略图: ${imageNumber}`);
                     this.onerror = null; // 防止循环
                     this.src = `https://placehold.co/180x120/6b9ac4/white?text=图片${i+1}&font=arial`;
                 };
@@ -1413,7 +1490,8 @@
             txtContent += `【图片浏览详情】\n`;
             txtContent += `总图片数：${AppState.totalImages}\n`;
             txtContent += `图片路径：${AppConfig.imageFolder}\n`;
-            txtContent += `图片格式：${AppConfig.imageFormat}\n\n`;
+            txtContent += `图片格式：${AppConfig.imageFormat}\n`;
+            txtContent += `是否预加载：是\n\n`;
             
             let totalImageViewTime = 0;
             for (let i = 0; i < AppState.totalImages; i++) {
@@ -1663,6 +1741,10 @@
             AppState.recordingStartTimestamp = null;
             AppState.experimentEndTimestamp = null;
             AppState.isGeneratingZip = false;
+            // 清除预加载的图片
+            AppState.preloadedImages = [];
+            AppState.isPreloading = false;
+            AppState.preloadProgress = 0;
             
             // 清理音频资源
             if (AppState.audioContext && AppState.audioContext.state !== 'closed') {
