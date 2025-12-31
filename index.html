@@ -446,7 +446,7 @@
         <div class="story-container">
             <img id="current-image" class="story-image" src="" alt="故事图片">
             <div class="page-indicator">
-                <span id="current-page">1</span> / <span id="total-pages">0</span>
+                <span id="current-page">1</span> / <span id="total-pages">6</span>
             </div>
         </div>
         
@@ -660,7 +660,7 @@
                 totalTime: 0
             },
             currentImageIndex: 0,
-            totalImages: 0,
+            totalImages: 6, // 直接设置为6张图片
             audioContext: null,
             mediaStream: null,
             processor: null,
@@ -675,12 +675,12 @@
             isGeneratingZip: false
         };
 
-        // 应用配置 - 使用GitHub raw文件地址
+        // 应用配置 - 使用正确的GitHub raw文件地址
         const AppConfig = {
             imageFolder: 'https://raw.githubusercontent.com/Xinwei2024/rabbit_images/main/rabbit_images',
             imageFormat: 'png',
             startIndex: 1,
-            maxImages: 50,
+            maxImages: 6, // 设置为6张图片
             audioSampleRate: 44100
         };
 
@@ -711,57 +711,58 @@
             
             // 设置事件监听器
             setupEventListeners();
+            
+            // 初始化图片浏览时间记录
+            AppState.imageViewTimes = new Array(AppState.totalImages).fill(0);
         }
 
-        // 检测图片总数
+        // 检测图片总数 - 简化版
         async function detectTotalImages() {
             const resultDiv = document.getElementById('image-check-result');
             resultDiv.innerHTML = '<div>正在检测图片...</div>';
             
-            // 尝试检测1-20张图片
-            let detectedCount = 0;
-            const imageFormats = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+            // 验证第一张图片是否能访问
+            const testUrl = `${AppConfig.imageFolder}/1.${AppConfig.imageFormat}`;
+            const testExists = await checkImageExists(testUrl);
             
-            for (let i = 1; i <= 20; i++) {
-                let found = false;
+            if (testExists) {
+                resultDiv.innerHTML = `<div class="success-message">
+                    ✅ 图片加载正常，共 ${AppState.totalImages} 张图片
+                    <br><small>图片地址示例：<a href="${testUrl}" target="_blank">${testUrl}</a></small>
+                </div>`;
+            } else {
+                // 如果第一张图片无法访问，尝试其他格式
+                resultDiv.innerHTML = `<div class="error-message">
+                    ⚠️ 无法加载PNG格式图片，正在尝试其他格式...
+                </div>`;
+                
+                const imageFormats = ['jpg', 'jpeg', 'gif', 'webp'];
+                let foundFormat = null;
                 
                 for (const format of imageFormats) {
-                    // 使用GitHub raw文件地址
-                    const imageUrl = `${AppConfig.imageFolder}/${i}.${format}`;
-                    const exists = await checkImageExists(imageUrl);
+                    const formatTestUrl = `${AppConfig.imageFolder}/1.${format}`;
+                    const formatExists = await checkImageExists(formatTestUrl);
                     
-                    if (exists) {
-                        found = true;
-                        if (i > detectedCount) {
-                            detectedCount = i;
-                        }
-                        // 记录检测到的格式
+                    if (formatExists) {
+                        foundFormat = format;
                         AppConfig.imageFormat = format;
                         break;
                     }
                 }
                 
-                // 如果连续3张图片都没找到，停止检测
-                if (!found && i > 3 && detectedCount === 0) {
-                    break;
+                if (foundFormat) {
+                    resultDiv.innerHTML = `<div class="success-message">
+                        ✅ 检测到图片格式为 ${foundFormat}，共 ${AppState.totalImages} 张图片
+                        <br><small>图片地址示例：<a href="${AppConfig.imageFolder}/1.${foundFormat}" target="_blank">${AppConfig.imageFolder}/1.${foundFormat}</a></small>
+                    </div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="error-message">
+                        ❌ 无法检测到任何图片格式
+                        <br><small>请检查GitHub仓库设置和文件路径</small>
+                        <br><small>测试链接：<a href="${testUrl}" target="_blank">${testUrl}</a></small>
+                    </div>`;
                 }
             }
-            
-            AppState.totalImages = detectedCount > 0 ? detectedCount : 5; // 默认5张
-            
-            if (detectedCount > 0) {
-                resultDiv.innerHTML = `<div class="success-message">
-                    检测到 ${detectedCount} 张图片，格式为 ${AppConfig.imageFormat}
-                </div>`;
-            } else {
-                resultDiv.innerHTML = `<div class="error-message">
-                    未检测到图片，将使用默认设置（5张图片）
-                    <br><small>请确保在GitHub仓库中有按数字命名的图片文件（如 1.png, 2.png）</small>
-                </div>`;
-            }
-            
-            // 初始化图片浏览时间记录数组
-            AppState.imageViewTimes = new Array(AppState.totalImages).fill(0);
             
             // 更新页面显示
             document.getElementById('total-pages').textContent = AppState.totalImages;
@@ -776,7 +777,7 @@
                 img.src = url;
                 
                 // 设置超时
-                setTimeout(() => resolve(false), 2000);
+                setTimeout(() => resolve(false), 3000);
             });
         }
 
@@ -910,8 +911,7 @@
             document.getElementById('total-pages').textContent = AppState.totalImages;
             showCurrentImage();
             
-            // 初始化图片浏览时间记录
-            AppState.imageViewTimes = new Array(AppState.totalImages).fill(0);
+            // 初始化页面导航记录
             AppState.pageNavigationLog = [];
         }
 
@@ -1462,7 +1462,7 @@
             AppState.currentImageIndex = 0;
             AppState.wavBlob = null;
             AppState.isRecording = false;
-            AppState.imageViewTimes = [];
+            AppState.imageViewTimes = new Array(6).fill(0);
             AppState.currentImageViewStart = null;
             AppState.pageNavigationLog = [];
             AppState.recordingStartTimestamp = null;
