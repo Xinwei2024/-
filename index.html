@@ -675,9 +675,9 @@
             isGeneratingZip: false
         };
 
-        // 应用配置 - 已修改为您的GitHub Pages地址和PNG格式
+        // 应用配置 - 使用GitHub raw文件地址
         const AppConfig = {
-            imageFolder: 'https://xinwei2024.github.io/rabbit_images',
+            imageFolder: 'https://raw.githubusercontent.com/Xinwei2024/rabbit_images/main/rabbit_images',
             imageFormat: 'png',
             startIndex: 1,
             maxImages: 50,
@@ -718,7 +718,7 @@
             const resultDiv = document.getElementById('image-check-result');
             resultDiv.innerHTML = '<div>正在检测图片...</div>';
             
-            // 简化检测逻辑：尝试检测1-20张图片
+            // 尝试检测1-20张图片
             let detectedCount = 0;
             const imageFormats = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
             
@@ -726,7 +726,7 @@
                 let found = false;
                 
                 for (const format of imageFormats) {
-                    // 使用GitHub Pages的完整URL
+                    // 使用GitHub raw文件地址
                     const imageUrl = `${AppConfig.imageFolder}/${i}.${format}`;
                     const exists = await checkImageExists(imageUrl);
                     
@@ -924,7 +924,7 @@
             }
             
             const imageNumber = AppState.currentImageIndex + AppConfig.startIndex;
-            // 使用GitHub Pages的完整URL
+            // 使用GitHub raw文件地址
             const imageUrl = `${AppConfig.imageFolder}/${imageNumber}.${AppConfig.imageFormat}`;
             
             const imgElement = document.getElementById('current-image');
@@ -978,7 +978,7 @@
             for (let i = 0; i < AppState.totalImages; i++) {
                 const img = document.createElement('img');
                 const imageNumber = i + AppConfig.startIndex;
-                // 使用GitHub Pages的完整URL
+                // 使用GitHub raw文件地址
                 const imageUrl = `${AppConfig.imageFolder}/${imageNumber}.${AppConfig.imageFormat}`;
                 
                 img.src = imageUrl;
